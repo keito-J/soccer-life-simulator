@@ -528,7 +528,9 @@ button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer
 .birth .b-age{animation:ageIn .6s cubic-bezier(.2,1.4,.4,1) 4.5s forwards}
 @keyframes blurIn{to{opacity:1;transform:none;filter:none}}
 @keyframes ageIn{to{opacity:1;transform:scale(1)}}
-.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);background:var(--accent);color:#0a0b0d;font-weight:900;font-size:13px;padding:10px 18px;border-radius:999px;z-index:20;animation:up .3s ease-out;white-space:nowrap}
+.share-note{margin:-2px 0 0;padding:10px 12px;border-radius:12px;background:rgba(198,255,61,.08);border:1px solid rgba(198,255,61,.35);font-size:12.5px;font-weight:900;text-align:center;line-height:1.5}
+.share-note small{display:block;font-size:10.5px;font-weight:700;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);background:var(--accent);color:#0a0b0d;font-weight:900;font-size:13px;padding:10px 18px;border-radius:999px;z-index:20;animation:up .3s ease-out;width:max-content;max-width:calc(100vw - 32px);text-align:center}
 </style>
 </head>
 <body>
@@ -3105,21 +3107,37 @@ async function drawCard(){
   x.fillText('#サッカー人生シミュレーター', W-64, 572);
   x.textAlign = 'left';
   const url = cv.toDataURL('image/png');
-  S.cardURL = url;
+  S.cardURL = url; S.cardFile = null;
+  // 共有用のファイルは先に作っておく（iPhoneのSafariは、タップから時間が空くと共有画面を開けない）
+  if(cv.toBlob) cv.toBlob(b=>{ if(b && S.cardURL===url) S.cardFile = new File([b], cardFileName(), {type:'image/png'}); }, 'image/png');
   const img = document.getElementById('cardImg'), dl = document.getElementById('cardDl');
   if(img){ img.src = url; img.classList.add('ready'); }
-  if(dl){ dl.href = url; dl.download = `soccer-life-${new Date().toISOString().slice(0,10)}.png`; }
+  if(dl){ dl.href = url; dl.download = cardFileName(); }
+}
+const cardFileName = () => `soccer-life-${new Date().toISOString().slice(0,10)}.png`;
+// 公開URL（ローカルで開いているときは公開版のURLを使う）
+const GAME_URL = 'https://keito-j.github.io/soccer-life-simulator/';
+const gameURL = () => location.protocol.startsWith('http') ? location.href.split('#')[0] : GAME_URL;
+// 画像付きで共有できる端末か（主にスマホ）
+function canShareCard(data){
+  try{ return !!(navigator.share && navigator.canShare && navigator.canShare(data)); }catch(e){ return false; }
+}
+// 共有シートを開く。キャンセルは何もしない。開けなかったら false
+async function shareCardFile(text){
+  const data = {files:[S.cardFile], text};
+  if(!S.cardFile || !canShareCard(data)) return false;
+  try{ await navigator.share(data); }
+  catch(err){ if(err && err.name==='AbortError') return true; return false; }
+  return true;
+}
+function saveCard(){
+  const a = document.createElement('a');
+  a.href = S.cardURL; a.download = cardFileName();
+  document.body.appendChild(a); a.click(); a.remove();
 }
 async function shareCardImage(){
   if(!S.cardURL){ toast('画像を作成中です。少し待ってからもう一度どうぞ'); return; }
-  try{
-    const blob = await (await fetch(S.cardURL)).blob();
-    const file = new File([blob], 'soccer-life.png', {type:'image/png'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], text:shareText()});
-      return;
-    }
-  }catch(err){ if(err && err.name==='AbortError') return; }
+  if(await shareCardFile(`${shareText()}\n${gameURL()}`)) return;
   toast('この端末では画像を直接共有できません。保存してから投稿してください');
 }
 function shareText(){
@@ -3132,7 +3150,7 @@ function shareText(){
     `${F.rarity.text}`,
     `「${F.epitaph}」`,
   ];
-  const tags = '#サッカー人生シミュレーター';
+  const tags = '#2億5千万分の1 #サッカー人生シミュレーター';
   // X の文字数（日本語は1文字=2カウント、上限280）に収まるよう、長い行から削る
   const weight = s => [...s].reduce((a,ch)=>a + (ch.charCodeAt(0)>0x2000 ? 2 : 1), 0);
   for(const drop of [5, 3]){
@@ -5376,10 +5394,20 @@ function histItem(h){
   return `<li><div class="a">${h.age}<small>歳</small></div><div><div class="l">${esc(T(h.label))}${tag}</div><div class="r">${esc(T(h.text))}</div></div></li>`;
 }
 
-function shareToX(){
-  const params = new URLSearchParams({text: shareText()});
-  if(location.protocol.startsWith('http')) params.set('url', location.href.split('#')[0]);
+// Xでシェア：スマホは画像付きの共有シート、できない端末は「画像を保存＋投稿文をコピー＋Xの投稿画面」
+async function shareToX(){
+  if(!S.cardURL){ toast('画像を作成中です。少し待ってからもう一度どうぞ'); return; }
+  const text = shareText(), url = gameURL();
+  if(S.cardFile && canShareCard({files:[S.cardFile], text})){
+    if(await shareCardFile(`${text}\n${url}`)) return;
+  }
+  saveCard();
+  try{ if(navigator.clipboard) navigator.clipboard.writeText(`${text}\n${url}`).catch(()=>{}); }catch(e){}
+  const params = new URLSearchParams({text, url});
   window.open(`https://twitter.com/intent/tweet?${params}`, '_blank', 'noopener');
+  const note = document.getElementById('shareNote');
+  if(note) note.hidden = false;
+  toast('画像を保存しました。Xの投稿に添付してください', 6000);
 }
 
 /* =========================================================
@@ -5595,6 +5623,7 @@ const SCREENS = {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         Xで結果をシェア
       </button>
+      <p class="share-note" id="shareNote" hidden>📎 画像を保存しました。Xの投稿に添付してください<small>投稿文はクリップボードにもコピーしてあります</small></p>
 
       <div class="hl-card">
         <div class="hl-head"><b>キャリアハイライト</b><span>TOP ${hl.length}</span></div>
@@ -5868,12 +5897,12 @@ function finishGacha(){
    トースト
    ========================================================= */
 let toastTimer;
-function toast(msg){
+function toast(msg, ms = 2400){
   clearTimeout(toastTimer);
   document.querySelectorAll('.toast').forEach(t=>t.remove());
   const t = document.createElement('div'); t.className='toast'; t.textContent=msg;
   document.body.appendChild(t);
-  toastTimer = setTimeout(()=>t.remove(), 2400);
+  toastTimer = setTimeout(()=>t.remove(), ms);
 }
 
 /* =========================================================
