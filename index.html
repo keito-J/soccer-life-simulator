@@ -540,7 +540,7 @@ button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer
     <div class="top-r">
       <button class="bgm" id="bgmBtn" aria-label="BGMをオフにする">🎵</button>
       <div class="toggle" role="group" aria-label="名前表示の切り替え">
-        <button data-nm="real">実名</button>
+        <button data-nm="real" class="on">実名</button>
         <button data-nm="parody">パロディ名</button>
       </div>
     </div>
@@ -856,12 +856,13 @@ function proEvent(){
    状態
    ========================================================= */
 const S = {
-  screen:'title', nameMode:'parody', mode:null, pref:null, city:null, place:null, country:null, player:'', playerSub:'',
+  screen:'title', nameMode:'real', mode:null, pref:null, city:null, place:null, country:null, player:'', playerSub:'',
   age:0, stats:{s:30,f:5,m:5,x:0}, club:null, clubs:[], used:new Set(),
   history:[], current:null, result:null, endReason:null, eventNo:0,
 };
 S.speed = 1; S.progress = 0; S.log = []; S.userPaused = false;
-try{ S.nameMode = localStorage.getItem('fls_nameMode') || 'parody'; S.speed = [1,2,5].includes(+localStorage.getItem('fls_speed')) ? +localStorage.getItem('fls_speed') : 1; }catch(e){}
+try{ const nm = localStorage.getItem('fls_nameMode'); S.nameMode = nm==='parody' ? 'parody' : 'real';   // 保存がなければ実名
+   S.speed = [1,2,5].includes(+localStorage.getItem('fls_speed')) ? +localStorage.getItem('fls_speed') : 1; }catch(e){}
 
 function N(key){
   const city = S.city || '某市';
