@@ -53,11 +53,14 @@ button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer
 }
 /* header */
 .top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none}
-.logo{font-family:var(--display);font-size:15px;line-height:1.1;letter-spacing:.02em}
+.logo{font-family:var(--display);font-size:15px;line-height:1.1;letter-spacing:.02em;white-space:nowrap;min-width:0}
 .logo small{display:block;white-space:nowrap;font-family:var(--body);font-size:9px;color:var(--muted);letter-spacing:.2em;font-weight:700}
 .top-r{display:flex;align-items:center;gap:6px;flex:none}
 .bgm{width:34px;height:34px;border-radius:50%;background:var(--card);border:1px solid var(--line);font-size:15px;line-height:1;display:grid;place-items:center;opacity:.55;transition:.2s}
 .bgm.on{opacity:1;border-color:rgba(198,255,61,.5)}
+#seBtn svg{width:17px;height:17px;display:block;color:var(--text)}
+@media (max-width:360px){.top-r{gap:4px}.bgm{width:30px;height:30px;font-size:13px}#seBtn svg{width:15px;height:15px}
+  .toggle button{padding:6px 7px;font-size:10.5px}.logo{font-size:13px}.logo small{font-size:8px;letter-spacing:.12em}}
 .toggle{display:flex;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px;flex:none}
 .toggle button{font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;color:var(--muted);transition:.2s}
 .toggle button.on{background:var(--accent);color:#0a0b0d}
@@ -538,6 +541,7 @@ button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer
   <header class="top">
     <div class="logo">2億5千万分の1<small>FOOTBALL LIFE SIM</small></div>
     <div class="top-r">
+      <button class="bgm on" id="seBtn" aria-label="効果音をオフにする" aria-pressed="true"></button>
       <button class="bgm" id="bgmBtn" aria-label="BGMをオフにする">🎵</button>
       <div class="toggle" role="group" aria-label="名前表示の切り替え">
         <button data-nm="real" class="on">実名</button>
@@ -6099,10 +6103,68 @@ const BGM = (()=>{
 window.BGM_READY = true;
 
 /* =========================================================
+   効果音：選択肢を押したときの「ピコッ」（Web Audio で作る、約0.1秒）
+   ========================================================= */
+const SFX = (()=>{
+  let ctx = null, out = null, on = true, last = 0, voice = null;
+  try{ on = localStorage.getItem('fls_se') !== 'off'; }catch(e){}
+  // AudioContext は最初に押したときに作る（スマホは操作なしで音を出せない）
+  function ready(){
+    if(!ctx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return false;
+      ctx = new AC();
+      const comp = ctx.createDynamicsCompressor();
+      out = ctx.createGain(); out.gain.value = .5;
+      out.connect(comp); comp.connect(ctx.destination);
+    }
+    if(ctx.state !== 'running') ctx.resume();
+    return true;
+  }
+  function click(){
+    if(!on) return;
+    try{
+      if(!ready()) return;
+      const now = performance.now();
+      if(now - last < 70) return;               // 連打しても重ねない
+      last = now;
+      if(voice){ try{ voice.stop(); }catch(e){} }  // 前の音は切ってから鳴らす
+      const t = ctx.currentTime + .005, o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = 'square';
+      o.frequency.setValueAtTime(988, t); o.frequency.setValueAtTime(1976, t + .035);   // 2音で「ピ・コッ」
+      f.type = 'lowpass'; f.frequency.value = 5000;
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.12, t + .004);
+      g.gain.setValueAtTime(.12, t + .03); g.gain.exponentialRampToValueAtTime(.0001, t + .1);
+      o.connect(f); f.connect(g); g.connect(out);
+      o.start(t); o.stop(t + .11);
+      voice = o; o.onended = () => { if(voice===o) voice = null; };
+    }catch(e){}
+  }
+  function paint(){
+    const b = document.getElementById('seBtn');
+    if(!b) return;
+    b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9h4l5-4v14l-5-4H3z"/>${on
+      ? '<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+      : '<path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>`;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', on ? '効果音をオフにする' : '効果音をオンにする');
+  }
+  function toggle(){
+    on = !on;
+    try{ localStorage.setItem('fls_se', on ? 'on' : 'off'); }catch(e){}
+    paint();
+    click();                                     // オンにしたら試しに鳴らす
+  }
+  return {click, toggle, paint};
+})();
+
+/* =========================================================
    イベント委譲
    ========================================================= */
 document.addEventListener('click', e=>{
   if(e.target.closest('#bgmBtn')){ BGM.toggle(); return; }
+  if(e.target.closest('#seBtn')){ SFX.toggle(); return; }
   const nm = e.target.closest('.toggle button');
   if(nm){
     S.nameMode = nm.dataset.nm;
@@ -6130,7 +6192,7 @@ document.addEventListener('click', e=>{
     case 'dex': if(S.screen!=='dex') S.dexFrom = S.screen; S.screen = 'dex'; render(); break;
     case 'dexBack': S.screen = S.dexFrom || 'title'; render(); break;
     case 'shareImg': shareCardImage(); break;
-    case 'choose': choose(+v); break;
+    case 'choose': SFX.click(); choose(+v); break;
     case 'pos': choosePos(v); break;
     case 'toEnding': endCareer(S.pendingEnd); break;
     case 'share': shareToX(); break;
@@ -6162,6 +6224,7 @@ document.addEventListener('click', e=>{
 })();
 
 BGM.paint();
+SFX.paint();
 render();
 </script>
 </body>
